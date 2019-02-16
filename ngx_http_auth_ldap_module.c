@@ -86,6 +86,7 @@ typedef struct {
 
     ngx_array_t *require_group;     /* array of ngx_http_complex_value_t */
     ngx_array_t *require_user;      /* array of ngx_http_complex_value_t */
+    ngx_array_t *skip_user;         /* array of ngx_http_complex_value_t */
     ngx_flag_t require_valid_user;
     ngx_http_complex_value_t require_valid_user_dn;
     ngx_flag_t satisfy_all;
@@ -664,6 +665,14 @@ ngx_http_auth_ldap_parse_require(ngx_conf_t *cf, ngx_http_auth_ldap_server_t *se
             return "is duplicate";
         }
         target = &server->require_valid_user_dn;
+    } else if (ngx_strcmp(value[1].data, "skip_user") == 0) {
+        if (server->skip_user == NULL) {
+            server->skip_user = ngx_array_create(cf->pool, 4, sizeof(ngx_http_complex_value_t));
+            if (server->skip_user == NULL) {
+                return NGX_CONF_ERROR;
+            }
+        }
+        target = ngx_array_push(server->skip_user);
     } else if (ngx_strcmp(value[1].data, "user") == 0) {
         if (server->require_user == NULL) {
             server->require_user = ngx_array_create(cf->pool, 4, sizeof(ngx_http_complex_value_t));
@@ -1928,6 +1937,16 @@ ngx_http_auth_ldap_authenticate(ngx_http_request_t *r, ngx_http_auth_ldap_ctx_t 
             case PHASE_CHECK_USER:
                 ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "http_auth_ldap: User DN is \"%V\"",
                     &ctx->user_dn);
+
+                if (ctx->server->skip_user != NULL) {
+                    rc = ngx_http_auth_ldap_check_user(r, ctx);
+                    if (rc == NGX_OK) {
+                        ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "http_auth_ldap: User ok, skipped", &ctx->user_dn);
+                        /* User check failed, try next server */
+                        ctx->phase = PHASE_NEXT;
+                        break;
+                    }
+                }
 
                 if (ctx->server->require_user != NULL) {
                     rc = ngx_http_auth_ldap_check_user(r, ctx);
