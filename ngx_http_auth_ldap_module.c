@@ -1939,9 +1939,9 @@ ngx_http_auth_ldap_authenticate(ngx_http_request_t *r, ngx_http_auth_ldap_ctx_t 
                     &ctx->user_dn);
 
                 if (ctx->server->skip_user != NULL) {
-                    rc = ngx_http_auth_ldap_check_user(r, ctx);
-                    if (rc == NGX_OK) {
-                        ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "http_auth_ldap: User ok, skipped", &ctx->user_dn);
+                    rc = ngx_http_auth_ldap_check_user_reverse(r, ctx);
+                    if (rc != NGX_OK) {
+                        ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "http_auth_ldap: Not ok", &ctx->user_dn);
                         /* User check failed, try next server */
                         ctx->phase = PHASE_NEXT;
                         break;
@@ -2153,6 +2153,30 @@ ngx_http_auth_ldap_check_user(ngx_http_request_t *r, ngx_http_auth_ldap_ctx_t *c
                 ctx->outcome = OUTCOME_DENY;
                 return NGX_DECLINED;
             }
+        }
+    }
+
+    return NGX_OK;
+}
+
+static ngx_int_t
+ngx_http_auth_ldap_check_user_reverse(ngx_http_request_t *r, ngx_http_auth_ldap_ctx_t *ctx)
+{
+    ngx_http_complex_value_t *values;
+    ngx_uint_t i;
+
+    values = ctx->server->skip_user->elts;
+    for (i = 0; i < ctx->server->skip_user->nelts; i++) {
+        ngx_str_t val;
+        if (ngx_http_complex_value(r, &values[i], &val) != NGX_OK) {
+            ctx->outcome = OUTCOME_ERROR;
+            return NGX_ERROR;
+        }
+
+        ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "http_auth_ldap: Comparing user DN with \"%V\"", &val);
+        if (val.len == ctx->user_dn.len && ngx_memcmp(val.data, ctx->user_dn.data, val.len) == 0) {
+            ctx->outcome = OUTCOME_DENY;
+            return NGX_DECLINED;
         }
     }
 
